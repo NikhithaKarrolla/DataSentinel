@@ -1,4 +1,6 @@
+
 from fastapi import FastAPI
+from app.routes.datasets import router as dataset_router
 
 app = FastAPI(
     title="DataSentinel API",
@@ -11,14 +13,13 @@ app = FastAPI(
 def home():
     return {
         "message": "Welcome to DataSentinel!",
-        "status": "Running",
-        "project": "AI Data Quality Intelligence Platform"
+        "status": "Running"
     }
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "Healthy",
-        "service": "DataSentinel Backend"
-    }
+    return {"status": "Healthy"}
+
+
+app.include_router(dataset_router)
