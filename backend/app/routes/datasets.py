@@ -6,6 +6,8 @@ import pandas as pd
 import uuid
 from app.services.quality import calculate_quality
 from app.services.profiling import generate_profile
+from fastapi import Form
+from app.services.anomaly import detect_anomalies
 
 router = APIRouter(prefix="/datasets", tags=["Dataset Analysis"])
 
@@ -143,4 +145,83 @@ async def assess_dataset_quality(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=400,
             detail=f"Quality assessment failed: {str(error)}"
+        )
+
+@router.post("/anomalies")
+async def analyze_anomalies(
+    file: UploadFile = File(...),
+    contamination: float = Form(0.05)
+):
+
+    extension = Path(file.filename or "").suffix.lower()
+
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file format."
+        )
+
+    if not 0 < contamination <= 0.5:
+        raise HTTPException(
+            status_code=400,
+            detail="Contamination must be between 0 and 0.5."
+        )
+
+    content = await file.read(MAX_FILE_SIZE + 1)
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File size exceeds the 20 MB limit."
+        )
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty."
+        )
+
+    try:
+
+        buffer = BytesIO(content)
+
+        if extension == ".csv":
+            df = pd.read_csv(buffer)
+
+        elif extension == ".xlsx":
+            df = pd.read_excel(buffer)
+
+        else:
+            df = pd.read_json(buffer)
+
+        if df.empty or len(df.columns) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset contains no records or columns."
+            )
+
+        result = detect_anomalies(
+            df,
+            contamination=contamination
+        )
+
+        return {
+            "message": "Anomaly detection completed successfully",
+            "filename": file.filename,
+            "report": result
+        }
+
+    except HTTPException:
+        raise
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Anomaly detection failed: {str(error)}"
         )
