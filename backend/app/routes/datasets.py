@@ -4,7 +4,7 @@ from pathlib import Path
 from io import BytesIO
 import pandas as pd
 import uuid
-
+from app.services.quality import calculate_quality
 from app.services.profiling import generate_profile
 
 router = APIRouter(prefix="/datasets", tags=["Dataset Analysis"])
@@ -83,4 +83,64 @@ async def upload_dataset(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=400,
             detail=f"Unable to process dataset: {str(error)}"
+        )
+
+@router.post("/quality")
+async def assess_dataset_quality(file: UploadFile = File(...)):
+
+    extension = Path(file.filename or "").suffix.lower()
+
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file format."
+        )
+
+    content = await file.read(MAX_FILE_SIZE + 1)
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File size exceeds the 20 MB limit."
+        )
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty."
+        )
+
+    try:
+        buffer = BytesIO(content)
+
+        if extension == ".csv":
+            df = pd.read_csv(buffer)
+
+        elif extension == ".xlsx":
+            df = pd.read_excel(buffer)
+
+        else:
+            df = pd.read_json(buffer)
+
+        if df.empty or len(df.columns) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset contains no records or columns."
+            )
+
+        quality_report = calculate_quality(df)
+
+        return {
+            "message": "Data quality assessment completed",
+            "filename": file.filename,
+            "report": quality_report
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Quality assessment failed: {str(error)}"
         )
